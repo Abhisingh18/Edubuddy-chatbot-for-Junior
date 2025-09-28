@@ -1,0 +1,229 @@
+<!-- Save as chat.html and open in browser -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>EduBuddy — Simple Chatbot (Client-side)</title>
+<style>
+  :root{--bg:#0f1724;--card:#0b1220;--accent:#10b981;--muted:#94a3b8;--user:#0ea5e9}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;background:linear-gradient(180deg,#071022 0%, #071a2a 100%);color:#e6eef6;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .wrap{width:100%;max-width:840px;background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));border-radius:12px;padding:18px;box-shadow:0 8px 30px rgba(2,6,23,0.6)}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+  header h1{font-size:18px;margin:0}
+  .controls{margin-left:auto;display:flex;gap:8px;align-items:center}
+  input.api{background:transparent;border:1px dashed rgba(255,255,255,0.06);color:var(--muted);padding:8px;border-radius:8px;width:260px}
+  button.small{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted);padding:8px 10px;border-radius:8px;cursor:pointer}
+  .chat-window{height:56vh;min-height:320px;border-radius:10px;padding:12px;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.005));overflow:auto;border:1px solid rgba(255,255,255,0.03)}
+  .msg{display:flex;gap:12px;margin:8px 0;align-items:flex-start}
+  .bubble{max-width:76%;padding:10px 12px;border-radius:10px;line-height:1.45}
+  .bot .bubble{background:rgba(255,255,255,0.03);color:#e6eef6;border-top-left-radius:4px}
+  .user{justify-content:flex-end}
+  .user .bubble{background:linear-gradient(90deg,var(--user),#0369a1);color:white;border-top-right-radius:4px}
+  .meta{font-size:12px;color:var(--muted);margin-top:6px}
+  .input-row{display:flex;gap:8px;margin-top:12px}
+  textarea.input{flex:1;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);min-height:56px;background:transparent;color:inherit;resize:vertical}
+  button.send{background:var(--accent);border:none;color:#072127;padding:12px 16px;border-radius:10px;cursor:pointer;font-weight:600}
+  .hint{font-size:13px;color:var(--muted);margin-top:8px}
+  .small-muted{font-size:12px;color:var(--muted)}
+  .kbd{font-family:monospace;background:rgba(255,255,255,0.03);padding:2px 6px;border-radius:6px;font-size:12px}
+  .status{font-size:13px;color:var(--muted);margin-left:8px}
+  .footer{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
+  a.link{color:var(--user);text-decoration:none}
+  /* typing dots */
+  .typing{display:inline-block;height:10px;}
+  .typing span{display:inline-block;width:6px;height:6px;margin:0 2px;background:#cbd5e1;border-radius:50%;opacity:.4;animation:blink 1s infinite}
+  .typing span:nth-child(2){animation-delay:0.15s}
+  .typing span:nth-child(3){animation-delay:0.3s}
+  @keyframes blink{0%{opacity:.2;transform:translateY(0)}50%{opacity:1;transform:translateY(-4px)}100%{opacity:.2;transform:translateY(0)}}
+</style>
+</head>
+<body>
+  <div class="wrap" role="application" aria-label="EduBuddy chat app">
+    <header>
+      <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='36' height='36'><rect width='36' height='36' rx='8' fill='%23102836' /><text x='50%' y='57%' font-size='18' text-anchor='middle' fill='%23a7f3d0' font-family='Arial'>E</text></svg>" alt="logo" style="width:40px;height:40px;border-radius:8px" />
+      <h1>EduBuddy — Simple Chatbot</h1>
+      <div class="controls">
+        <input class="api" id="apiKey" placeholder="Paste OpenAI API key (sk-...)" aria-label="API Key" />
+        <button class="small" id="saveKeyBtn">Save</button>
+        <button class="small" id="clearBtn" title="Clear conversation">Clear</button>
+      </div>
+    </header>
+
+    <div class="chat-window" id="chatWindow" aria-live="polite"></div>
+
+    <div class="input-row">
+      <textarea id="userInput" class="input" placeholder="Ask a question... e.g., 'Newton ka second law samjhao'"></textarea>
+      <button id="sendBtn" class="send">Send</button>
+    </div>
+
+    <div class="hint">
+      <span class="small-muted">Tip: Press <span class="kbd">Shift+Enter</span> for newline, <span class="kbd">Enter</span> to send.</span>
+      <span class="status" id="status"></span>
+    </div>
+
+    <div class="footer">
+      <div class="small-muted">Prototype — don't expose real API key in public.</div>
+      <div><a class="link" href="#" id="exampleQuestion">Try: Explain photosynthesis</a></div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const chatWindow = document.getElementById('chatWindow');
+  const userInput = document.getElementById('userInput');
+  const sendBtn = document.getElementById('sendBtn');
+  const apiKeyInput = document.getElementById('apiKey');
+  const saveKeyBtn = document.getElementById('saveKeyBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const status = document.getElementById('status');
+  const exampleQ = document.getElementById('exampleQuestion');
+
+  // Simple conversation stored in memory + localStorage
+  const STORAGE_KEY = 'edubuddy_conv_v1';
+  const KEY_STORAGE = 'edubuddy_api_key';
+  let messages = [];
+
+  function renderMessage(role, text) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ' + (role === 'user' ? 'user' : 'bot');
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+    wrap.appendChild(bubble);
+    chatWindow.appendChild(wrap);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+  }
+
+  function setStatus(txt, temp=false) {
+    status.textContent = txt;
+    status.title = temp ? 'temporary status' : '';
+  }
+
+  function loadState() {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    const savedKey = localStorage.getItem(KEY_STORAGE);
+    if (saved) {
+      try {
+        messages = JSON.parse(saved);
+        chatWindow.innerHTML = '';
+        messages.forEach(m => renderMessage(m.role, m.content));
+      } catch(e){ messages = []; }
+    } else {
+      // initial bot greeting
+      messages = [{role:'assistant', content: "Hi! Main EduBuddy hoon. Poochho kuch bhi — math, physics, history. (Client-side demo)"}];
+      renderMessage('assistant', messages[0].content);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+    }
+    if (savedKey) apiKeyInput.value = savedKey;
+  }
+
+  function saveConv() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+  }
+
+  saveKeyBtn.addEventListener('click', () => {
+    const val = apiKeyInput.value.trim();
+    if (!val) { alert('Please paste API key first'); return; }
+    localStorage.setItem(KEY_STORAGE, val);
+    setStatus('API key saved (in browser storage)');
+  });
+
+  clearBtn.addEventListener('click', () => {
+    if (!confirm('Clear conversation?')) return;
+    messages = [];
+    localStorage.removeItem(STORAGE_KEY);
+    chatWindow.innerHTML = '';
+    loadState();
+    setStatus('Conversation cleared');
+  });
+
+  exampleQ.addEventListener('click', (e) => {
+    e.preventDefault();
+    userInput.value = 'Photosynthesis ko simple shabdon mein samjhao.';
+    userInput.focus();
+  });
+
+  // handle enter vs shift+enter
+  userInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendBtn.click();
+    }
+  });
+
+  // core send function
+  async function sendMessage() {
+    const text = userInput.value.trim();
+    if (!text) return;
+    // add user message
+    const userMsg = {role:'user', content:text};
+    messages.push(userMsg);
+    renderMessage('user', text);
+    userInput.value = '';
+    saveConv();
+
+    // show typing
+    const typingNode = document.createElement('div');
+    typingNode.className = 'msg bot';
+    typingNode.innerHTML = '<div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div>';
+    chatWindow.appendChild(typingNode);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+    setStatus('Thinking...');
+    
+    try {
+      // Build messages for LLM: include a short system prompt for consistent behavior
+      const systemPrompt = {
+        role: 'system',
+        content: `You are EduBuddy, a friendly, concise educational assistant. Explain step-by-step when needed. Keep examples short and clear. Use language friendly for students.`
+      };
+      const apiKey = (apiKeyInput.value || '').trim();
+      if (!apiKey) throw new Error('API key missing. Paste it above or use server proxy.');
+
+      // Call OpenAI Chat Completions (v1)
+      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + apiKey
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini', // you can change model name per your key/access
+          messages: [systemPrompt, ...messages.slice(-12)], // keep recent history
+          max_tokens: 500,
+          temperature: 0.2
+        })
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`API error: ${resp.status} ${errText}`);
+      }
+      const data = await resp.json();
+      const assistantText = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || 'Sorry, no reply.';
+      messages.push({role:'assistant', content:assistantText});
+      saveConv();
+
+      // remove typing node and append actual answer
+      chatWindow.removeChild(typingNode);
+      renderMessage('assistant', assistantText);
+      setStatus('Response received');
+    } catch (err) {
+      chatWindow.removeChild(chatWindow.lastChild); // remove typing
+      const errMsg = `Error: ${err.message}`;
+      renderMessage('assistant', errMsg);
+      setStatus('Error');
+      console.error(err);
+    }
+  }
+
+  sendBtn.addEventListener('click', sendMessage);
+
+  // initialize
+  loadState();
+  setStatus('Ready — paste API key to use (client-side demo)');
+})();
+</script>
+</body>
+</html>
